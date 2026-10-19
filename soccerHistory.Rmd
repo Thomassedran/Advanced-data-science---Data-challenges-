@@ -1,0 +1,107 @@
+---
+title: "Which is the best team ever in Italian soccer?"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=FALSE, echo = TRUE, eval = FALSE, message=FALSE, warning = FALSE, fig.align='center')
+```
+This challenge explores all matches of Italian soccer Serie A league from 1993 to current year. The dataset is contained in the website [football-data.co.uk](http://www.football-data.co.uk/italym.php). 
+
+### Challenges
+1. Think about how to scrape the data from the website, but write no code at this stage.
+1. Ask AI to write code to import data by scraping the website. Select only columns Date, HomeTeam, AwayTeam, FTHG (home team goals), FTAG (away team goals)  and filter rows with a valid (not NA) Date. 
+1. Using dplyr and tidyr packages (no for loops!), compute statistics for every team (matches, wins, loses, draws, points, points per match). Hint: mutate a column with the outcome of the match (for instance, H = home teams wins, A = away team wins, P = draw). Then group by team and outcome (home and away) and hence spread the outcome. Do this step without the use of AI.
+1. Come up with at least 3 data questions on the data at hand. Just write the questions, do not find the answers.
+
+
+# 1 Think about how to scrape the data from the website, but write no code at this stage.
+I dati presenti sul sito sono pubblicati come file CSV per ogni stagione di Serie A, dal 1993/94 in poi, quindi,l'idea è leggere la pagina HTML del sito, estrarre i link dei file delle varie stagioni e leggere ogni CSV direttamente dal suo indirizzo.In seguito, poiché i file più vecchi hanno meno colonne di quelli recenti, di ogni stagione tengo solo le colonne comuni utilizzando un "select" e poi aggiungo con "mutate" una colonna con la stagione di provenienza. 
+A questo punto tutte le tabelle hanno le stesse variabili e posso unirle in un unico data frame.
+Poi procdo alla pulizia del data frame, elimino le partite senza data valida, controllo che le date siano lette correttamente e che il numero di partite per stagione sia plausibile. 
+
+
+# 2 Ask AI to write code to import data by scraping the website. Select only columns Date, HomeTeam, AwayTeam, FTHG (home team goals), FTAG (away team goals)  and filter rows with a valid (not NA) Date.
+
+```{r eval=TRUE, echo=TRUE}
+
+library(tidyverse)
+library(rvest)
+
+options(timeout = 120)
+
+url <- "https://www.football-data.co.uk/italym.php"
+
+links <- read_html(url) |>
+  html_elements("a") |>
+  html_attr("href") |>
+  discard(is.na) |>
+  str_subset("I1\\.csv$") |>
+  xml2::url_absolute(url) |>
+  unique()
+
+read_season <- function(link) {
+  Sys.sleep(1)
+  read_csv(link, col_types = cols(.default = "c", FTHG = "i", FTAG = "i")) |>
+    select(Date, HomeTeam, AwayTeam, FTHG, FTAG)
+}
+
+read_season_retry <- insistently(read_season, rate_delay(pause = 3, max_times = 4))
+
+serieA <- links |>
+  map(read_season_retry) |>
+  bind_rows() |>
+  filter(!is.na(Date))
+
+serieA
+
+```
+
+# 3 Using dplyr and tidyr packages (no for loops!), compute statistics for every team (matches, wins, loses, draws, points, points per match). Hint: mutate a column with the outcome of the match (for instance, H = home teams wins, A = away team wins, P = draw). Then group by team and outcome (home and away) and hence spread the outcome.
+
+```{r eval=TRUE, echo=TRUE}
+
+library(dplyr)
+
+partite <- serieA |>
+  filter(!is.na(FTHG), !is.na(FTAG))
+
+in_casa <- partite |>
+  group_by(HomeTeam) |>
+  summarise(m_h = n(),
+            w_h = sum(FTHG > FTAG),
+            d_h = sum(FTHG == FTAG),
+            l_h = sum(FTHG < FTAG))
+
+in_trasferta <- partite |>
+  group_by(AwayTeam) |>
+  summarise(m_a = n(),
+            w_a = sum(FTAG > FTHG),
+            d_a = sum(FTAG == FTHG),
+            l_a = sum(FTAG < FTHG))
+
+inner_join(in_casa, in_trasferta, by = join_by(HomeTeam == AwayTeam)) |>
+  mutate(team = HomeTeam,
+         matches = m_h + m_a,
+         wins = w_h + w_a,
+         loses = l_h + l_a,
+         draws = d_h + d_a,
+         points = 3 * wins + draws,
+         points_per_match = points / matches) |>
+  select(team, matches, wins, loses, draws, points, points_per_match) |>
+  arrange(desc(points))
+
+```
+
+
+# 4 Come up with at least 3 data questions on the data at hand. Just write the questions, do not find the answers.
+
+1. La classifica per "points_per_match" premia la qualià delle partite o la quantità. Quanto questa classifica è 
+influenzata da quanto a lungo una squadra è rimasta in Serie A e quanto da come ha giocato?
+
+2. Quali squadre dipendono di più dal fattore campo?
+
+3. La fortuna che ruolo gioca? (rapporto punti e differenza reti)
