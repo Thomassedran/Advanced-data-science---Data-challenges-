@@ -1,0 +1,291 @@
+---
+title: "The Elo method in chess"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=FALSE, message=FALSE)
+```
+
+**Elo method** was coined by the physics professor and excellent chess player Arpad Elo. In 1970, FIDE, the World Chess Federation, agreed to adopt the Elo Rating System.
+
+The method works as follows. Suppose that players $i$ and $j$ match. Let $s_{i,j}$ be the **actual score** of $i$ in the match against $j$. We have that:
+
+- $s_{i,j} = 1$ if $i$ wins;
+- $s_{i,j} = 0$ if $i$ loses; and
+- $s_{i,j} = 0.5$ if there is a draw.
+
+Notice that the actual score $s_{j,i}$ of $j$ in the match against $i$ is $1 - s_{i,j}$. Let $\mu_{i,j}$ be the **expected score** of $i$ in the match against $j$. We have that:
+
+$$
+\begin{array}{lll}
+\mu_{i,j} & = & \frac{1}{1 + 10^{-(r_i - r_j) / \zeta}} = 
+\frac{10^{r_i / \zeta}}{10^{r_i / \zeta} + 10^{r_j / \zeta}} \\\\
+\end{array}
+$$
+
+with $r_i$ and $r_j$ the ratings of $i$ and $j$ before the match and $\zeta$ is a constant. Notice that the expected score $\mu_{j,i}$ of $j$ in the match against $i$ is $1 - \mu_{i,j}$.
+
+```{r logistic, echo = FALSE, eval = TRUE}
+## Logistic function
+logistic = function(x, z=400) {
+  return(1 / (1 + 10^(-x / z)))
+}
+limit = 1000
+plot(logistic, xlim=c(-limit, limit), lwd=3, xlab="rating difference", ylab = "logistic")
+abline(h=0.5, lty=2)
+```
+
+We assume that initially all player ratings are equal to 0. When players $i$ and $j$ match, the new ratings $r_i$ of $i$ and $r_j$ of $j$ are modified using the following update rule:
+
+$$
+\begin{array}{lll}
+r_{i} & \leftarrow & r_i + \kappa (s_{i,j} - \mu_{i,j}) 
+\\
+r_j & \leftarrow & r_j + \kappa (s_{j,i} - \mu_{j,i})
+\end{array}
+$$
+
+where $\kappa$ is a constant.
+
+The Elo thesis is:
+
+> *If a player performs as expected, it gains nothing. If it performs better than expected, it is rewarded, while if it performs poorer than expected, it is penalized.*
+
+This challenge is ispired by [Chess ratings - Elo versus the Rest of the World](https://www.kaggle.com/c/chess#description) Kaggle competition.
+
+## Downloads
+
+- A [CSV](data.csv) with outcomes of 65053 distinct chess games (White, Black and Score). The possible values for Score represent the three possible outcomes of a chess game (1=White wins, 0.5=draw, 0=Black wins). Read [details](https://www.kaggle.com/c/chess/data).
+
+## Challenges
+
+```{r, eval=TRUE, echo=TRUE}
+
+library(tidyverse)
+
+games <- read_csv("data.csv")
+
+games
+count(games, Score)
+
+```
+
+# 1.  Has the White an advantage over the Black, that is, is there a first-mover advantage?
+
+```{r, eval=TRUE, echo=TRUE}
+
+games |>
+  count(Score) |>
+  mutate(share = n / sum(n))
+
+games |>
+  summarise(mean_score = mean(Score))
+
+set.seed(42)
+
+n_games <- nrow(games)
+n_sim <- 1000
+sim_means <- vector("double", n_sim)
+
+for (i in 1:n_sim) {
+  coin <- sample(c("H", "T"), n_games, replace = TRUE)
+  sim_score <- ifelse(coin == "H", games$Score, 1 - games$Score)
+  sim_means[i] <- mean(sim_score)
+}
+
+obs_mean <- mean(games$Score)
+
+obs_mean
+sum(sim_means >= obs_mean) / n_sim
+
+hist(sim_means,
+     xlim = c(0.49, 0.55),
+     xlab = "mean score of White",
+     main = "Simulated mean scores when colour does not matter")
+abline(v = obs_mean, lwd = 3, lty = 2)
+
+data.frame(sim_means) |>
+  ggplot(aes(x = sim_means)) +
+  geom_histogram(binwidth = 0.0005, fill = "grey", colour = "white") +
+  geom_segment(data = data.frame(obs_mean),
+               aes(x = obs_mean, xend = obs_mean, y = 0, yend = 300),
+               colour = "red", linetype = "dashed", linewidth = 1) +
+  labs(
+    title = "Histogram: White's average score in 1000 simulated worlds where colour does not matter.
+Dashed line: White's average score in the 65,053 real games (0.546).",
+    x = "Average points per game scored by White (0.5 = no advantage)",
+    y = "Number of simulations (out of 1000)"
+  ) +
+  theme_minimal()
+
+```
+
+Si, il bianco ottiene in media 0,546 punti a partita contro lo 0,5 atteso senza vantaggio (vince il 32,5% delle partite contro il 23,4% del Nero), e nessuna delle 1000 simulazioni in cui il colore non conta raggiunge questo valore (p-value inferiore a 1 su 1000). C’è, quindi, un vantaggio reale, di entità moderata, coerente con un vantaggio della prima mossa.
+
+# 1.  Write a function that computes the player point rating (1 point for wins, 0.5 points for draws, 0 points for defeats). How are point ratings distributed? Why?
+
+```{r, eval=TRUE, echo=TRUE}
+
+point_rating <- function(games) {
+
+  stacked <- data.frame(
+    player = c(games$White, games$Black),
+    points = c(games$Score, 1 - games$Score)
+  )
+
+  result <- stacked |>
+    group_by(player) |>
+    summarise(points = sum(points))
+
+  return(result)
+}
+
+point_ratings <- point_rating(games)
+
+point_ratings
+
+sum(point_ratings$points)
+
+hist(point_ratings$points,
+     xlab = "points",
+     main = "Distribution of player point ratings")
+
+mean(point_ratings$points)
+
+nrow(filter(point_ratings, points <= 5)) / nrow(point_ratings)
+
+```
+
+Il sistema basato sui punti (1 point for wins, 0.5 points for draws, 0 points for defeats) vede una distribuzione molto asimmetrica, poiché la maggior parte dei giocatori ha pochissimi punti, mentre pochi giocatori arrivano a punteggi molto alti, formando cosi una lunga coda a destra. Il motivo è che il sistema a punti si basa su una somma sulle partite giocate e il numero di partite è molto diseguale tra i giocatori, pochi giocano moltissimo, la maggior parte pochissimo. Chi ha giocato di più accumula più punti anche senza essere più forte, quindi, il sistema a punti misura soprattutto l’attività di gioco più che la bravura del giocatore.
+
+# 2.  An interesting property of Elo's ratings is that the sum of all player ratings is always 0. Formally show this property. (Hint: use the fact that $s_{i,j} + s_{j,i}=1$ and $\mu_{i,j} + \mu_{j,i} =1$)
+
+All'inizio tutti i rating sono uguali a 0, quindi, la loro somma è 0. Mostriamo che una partita non modifica la somma dei rating, così, partita dopo partita, la somma resta 0.
+
+Supponiamo che i giocatori "i" e "j" giochino una partita, alla fine cambiano i loro rating e per la regola di aggiornamento (che usa i rating di prima della partita) la somma varia di
+
+$$
+\kappa (s_{i,j} - \mu_{i,j}) + \kappa (s_{j,i} - \mu_{j,i}) = \kappa \left[ (s_{i,j} + s_{j,i}) - (\mu_{i,j} + \mu_{j,i}) \right].
+$$
+
+I punteggi effettivi, quindi, sommano a 1: s\_{i,j} + s\_{j,i} = 1 (vittoria e sconfitta valgono 1 e 0, la patta vale 0,5 per entrambi) e anche i punteggi attesi sommano a 1: \mu*{i,j} +* \mu{j,i} = 1, poiché
+
+$$
+\mu_{i,j} + \mu_{j,i} = \frac{10^{r_i / \zeta}}{10^{r_i / \zeta} + 10^{r_j / \zeta}} + \frac{10^{r_j / \zeta}}{10^{r_i / \zeta} + 10^{r_j / \zeta}} = 1.
+$$
+
+Quindi, la variazione della somma è k(1 - 1) = 0 e la partita non cambia la somma dei rating, poiché la somma iniziale è 0, resta 0 dopo ogni partita.
+
+# 3.  Write a function that computes the player Elo rating (set $\zeta = 400$ and $\kappa = 25$) (Hint: take advantage of the 0-sum property to optimize the code). Obserse its distribution: why is different from the point distribution? Verify the 0-sum property for Elo's ratings
+
+```{r, eval=TRUE, echo=TRUE}
+
+elo_rating <- function(games, zeta = 400, kappa = 25) {
+
+  players <- point_rating(games)$player
+
+  ratings <- vector("double", length(players))
+  names(ratings) <- players
+
+  for (g in 1:nrow(games)) {
+    white <- paste(games$White[g])
+    black <- paste(games$Black[g])
+
+    mu <- logistic(ratings[white] - ratings[black], zeta)
+    delta <- kappa * (games$Score[g] - mu)
+
+    ratings[white] <- ratings[white] + delta
+    ratings[black] <- ratings[black] - delta
+  }
+
+  names(ratings) <- NULL
+
+  return(data.frame(player = players, elo = ratings))
+}
+
+elo_ratings <- elo_rating(games)
+
+sum(elo_ratings$elo)
+
+hist(elo_ratings$elo,
+     xlab = "Elo rating",
+     main = "Distribution of player Elo ratings")
+
+```
+Ho dimostrato che la somma degli Elo è 0 (circa 2,6·10⁻¹¹) e la proprietà dimostrata nella domanda 3 è verificata sui dati reali. 
+Si può notare, inoltre, che la distribuzione è diversa da quella del sistema a punti. Il sistema a punti si basa sul totale degli incontri e i valori crescono con le partite giocate, quindi, la maggior parte dei giocatori ha pochi punti e pochi ne hanno molti. L’Elo, invece, misura quanto punteggio un giocatore ha ottenuto contro i suoi avversari (considerando come ha performato), inoltre, dipende dalla forza di chi si affronta e non cresce solo giocando di più. 
+
+# 4.  Are point and Elo ratings correlated? Are top Elo players overlapping with top point players?
+
+```{r, eval=TRUE, echo=TRUE}
+
+ratings <- inner_join(point_ratings, elo_ratings, join_by(player))
+
+plot(ratings$points, ratings$elo,
+     xlab = "point rating",
+     ylab = "Elo rating")
+
+cor(ratings$points, ratings$elo)
+
+
+top_points <- ratings |>
+  arrange(desc(points)) |>
+  head(100) |>
+  select(player)
+
+top_elo <- ratings |>
+  arrange(desc(elo)) |>
+  head(100) |>
+  select(player)
+
+nrow(intersect(top_points, top_elo))
+
+```
+Sì, il sistema a punti e l'Elo sono correlati, il coefficiente di correlazione è circa 0,72, quindi, i due rating tendono ad aumentare insieme. Va, però, letto con cautela, perché la correlazione di Pearson è sensibile ai pochi giocatori con valori estremi e parte dell’associazione dipende dal fatto che entrambi i rating crescono con il numero di partite giocate. Anche i migliori si sovrappongono solo in parte, infatti, tra i primi 100 per punti e i primi 100 per Elo, 53 giocatori sono in comune. 
+
+
+# 5.  Test if the number of played games has an effect on the Elo and point player ratings
+
+
+```{r eval=TRUE, echo=TRUE}
+
+games_played <- data.frame(player = c(games$White, games$Black)) |>
+  count(player)
+
+ratings_games <- inner_join(ratings, games_played, join_by(player))
+
+plot(ratings_games$n, ratings_games$points,
+     xlab = "played games",
+     ylab = "point rating")
+
+plot(ratings_games$n, ratings_games$elo,
+     xlab = "played games",
+     ylab = "Elo rating")
+
+cor(ratings_games$n, ratings_games$points)
+cor(ratings_games$n, ratings_games$elo)
+
+
+set.seed(42)
+
+n_sim <- 1000
+sim_cor_points <- vector("double", n_sim)
+sim_cor_elo <- vector("double", n_sim)
+
+for (i in 1:n_sim) {
+  shuffled <- sample(ratings_games$n)
+  sim_cor_points[i] <- cor(shuffled, ratings_games$points)
+  sim_cor_elo[i] <- cor(shuffled, ratings_games$elo)
+}
+
+obs_cor_points <- cor(ratings_games$n, ratings_games$points)
+obs_cor_elo <- cor(ratings_games$n, ratings_games$elo)
+
+sum(sim_cor_points >= obs_cor_points) / n_sim
+sum(sim_cor_elo >= obs_cor_elo) / n_sim
+
+```
+Sì, vi è un'associazione tra il numero di partite giocate ed entrambi i punteggi. Ho realizzato due scatterplot per mostrare la relazione tra le partite giocate e ciascun punteggio, si può osservare che nel sistema a punti crescono quasi in linea retta con le partite (correlazione: 0,99), mentre l’Elo mostra un’associazione positiva più debole e con molta più dispersione (correlazione: 0,64). Come nella domanda 1, ho poi aggiunto un test di permutazione per una verifica più solida, poiché rimescolando a caso il numero di partite tra i giocatori, nessuna delle 1000 correlazioni simulate raggiunge quella osservata (p-value: 0), né per i punti né per l’Elo. L’effetto è, però, di natura diversa nei due casi, poiché per il sistema a punti è quasi meccanico, dato che ogni partita assegna punti, invece, per l’Elo non lo è, in quanto l’associazione può dipendere dal fatto che i giocatori più forti giocano di più e che chi gioca poco resta vicino al rating iniziale 0.
