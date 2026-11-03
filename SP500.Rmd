@@ -1,0 +1,128 @@
+---
+title: "Concentration of S&P 500 index"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, echo = TRUE, message = FALSE)
+```
+
+In this data challege we study how concentrated the S&P 500 is among its constituent companies. 
+
+1. The S&P 500 (Standard & Poor's 500) is a stock market index that tracks the performance of 500 of the largest publicly traded companies in the United States.
+2. It covers roughly 80% of the total value of the U.S. stock market.
+3. It is a market-capitalization-weighted index. Larger companies have a much bigger impact on its value than smaller components
+
+
+We will use:
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(ineq)
+```
+
+The three packages have different roles:
+
+```text
+tidyquant    retrieve the S&P 500 constituents and weights
+tidyverse    manipulate and visualize the data
+ineq         calculate the Lorenz curve and Gini coefficient
+```
+
+Our main questions are:
+
+```{r, eval=FALSE}
+
+sp500 <- tq_index("SP500")
+write_csv(sp500, "data/sp500.csv")
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+sp500 <- read_csv("data/sp500.csv")
+
+sp500
+
+```
+
+
+# 1. How unequal are the company weights in the S&P 500?
+
+```{r, eval=TRUE, echo=TRUE}
+
+sp500 |>
+  summarise(
+    societa = n(),
+    totale = sum(weight),
+    media = mean(weight),
+    minimo = min(weight),
+    massimo = max(weight),
+    rapporto = max(weight) / mean(weight)
+  )
+
+sp500 |>
+  arrange(-weight) |>
+  head(10) |>
+  select(company, weight)
+
+sp500 |>
+  ggplot(aes(x = weight)) +
+  geom_histogram() +
+  labs(x = "Peso", y = "Numero di società", title = "Distribuzione dei pesi nell'S&P 500") +
+  theme_minimal()
+
+```
+Dai risultati si evince che i pesi sono diseguali, società come Apple o NVIDIA, i cui pesi sono rispettivamente dello 7.6% e 7.5%, circa 38 volte il peso medio all'interno dell'indice. L'istogramma, inoltre, mostra una distribuzione fortemente asimmetrica, in cui la maggioranza dei titoli ha un peso molto basso, prossimo a zero, mentre pochi titoli hanno pesi molto alti. Si conclude, quindi, che l'indice SP500 è molto concentrato in poche società
+
+# 2. How much of the index is represented by its largest companies?
+
+```{r, eval=TRUE, echo=TRUE}
+
+sp500 |>
+  arrange(-weight) |>
+  head(10) |>
+  summarise(quota = sum(weight))
+
+sp500 |>
+  arrange(-weight) |>
+  head(50) |>
+  summarise(quota = sum(weight))
+
+sp500 |>
+  arrange(-weight) |>
+  head(100) |>
+  summarise(quota = sum(weight))
+
+```
+Si può vedere come le 10 società con il peso maggiore rappresentano il 37% dell’indice, contro il 2% che avrebbero in un indice pesato equamente tra le società che lo compongono. Ho considerato poi le prime 50, che rappresentano il 62,5% e le prime 100, che rappresentano il 74,5%, a fronte rispettivamente del 10% e del 20% che avrebbero in un indice pesato equamente. Quindi, si può vedere come il 20% delle società detiene tre quarti dell’indice, mentre le restanti 404 ne rappresentano solo un quarto. Si conclude che il contributo di ogni società aggiuntiva diminuisce rapidamente, in quanto l’indice è fortemente concentrato in un numero ridotto di grandi società.
+
+# 3. What does the Lorenz curve tell us about concentration?
+
+```{r, eval=TRUE, echo=TRUE}
+
+Lc_sp500 <- Lc(sp500$weight)
+
+df_lorenz <- data.frame(p = Lc_sp500$p, L = Lc_sp500$L)
+
+ggplot(df_lorenz, aes(p, L)) +
+  geom_line(linewidth = 1) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(
+    x = "Quota cumulata delle società",
+    y = "Quota cumulata del peso",
+  ) +
+  theme_minimal()
+
+```
+La curva di Lorenz conferma i risultati dell'analisi svolta nella domanda precedente, si discosta nettamente dalla diagonale di uguaglianza perfetta e resta molto vicina a zero per quasi tutto l’asse delle ascisse, impennandosi solo nell’ultimo tratto. Questo indica che il peso dell’indice è concentrato in un numero ridotto di grandi società e che la maggior parte dei titoli ha un ruolo marginale.
+
+# 4. What is the Gini coefficient of the S&P 500 weights?
+
+```{r, eval=TRUE, echo=TRUE}
+
+Gini(sp500$weight)
+
+```
+Il coefficiente di Gini è pari a 0.7, un'ulteriore dimostrazione dell'elevata concentrazione dell'indice. Il dato, inoltre, risulta perfettamente coerente con la curva di Lorenz, la quale si discosta molto dalla diagonale, e anche con i risultati delle analisi svolte in precedenza
