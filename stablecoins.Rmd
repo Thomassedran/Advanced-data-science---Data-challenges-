@@ -1,0 +1,211 @@
+---
+title: "Stablecoins — compare USDC, USDT and DAI transaction sizes and volumes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE)
+```
+
+We want to compare three major Ethereum stablecoins:
+
+-  USDC (smart contract address: 0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48)
+-  USDT (smart contract address: 0xdac17f958d2ee523a2206206994597c13d831ec7)
+-  DAI (smart contract address: 0x6b175474e89094c44da98b954eedeac495271d0f)
+
+
+We will investigate two questions:
+
+1. How do their transfer sizes differ?
+2. How much transfer volume does each stablecoin generate?
+
+Our workflow is:
+
+```text
+Ethereum
+   ↓
+Etherscan
+   ↓
+ERC-20 transfer events
+   ↓
+R / tidyverse
+   ↓
+transfer sizes + transfer volumes
+```
+
+We use Etherscan to retrieve the already indexed ERC-20 transfer events. Etherscan’s `tokentx` endpoint can be filtered directly by token contract, so we do not need to download unrelated ERC-20 transfers first. 
+
+We use the term transfer rather than transaction throughout the lab: one Ethereum transaction can generate several ERC-20 transfer events.
+
+# 1. How do their transfer sizes differ?
+
+```{r, eval=TRUE, echo=TRUE}
+
+library(tidyverse)
+library(httr2)
+
+api_key <- Sys.getenv("ETHERSCAN_API_KEY")
+
+usdc <- "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+usdt <- "0xdac17f958d2ee523a2206206994597c13d831ec7"
+dai <- "0x6b175474e89094c44da98b954eedeac495271d0f"
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+get_token_transfers <- function(
+    address,
+    api_key = Sys.getenv("ETHERSCAN_API_KEY"),
+    start_block = 0,
+    end_block = 99999999,
+    offset = 1000
+) {
+
+  page <- 1
+  transactions <- list()
+
+  repeat {
+
+    message("Downloading page ", page, "...")
+
+    response <- request("https://api.etherscan.io/v2/api") |>
+      req_url_query(
+        chainid = 1,
+        module = "account",
+        action = "tokentx",
+        contractaddress = address,
+        startblock = start_block,
+        endblock = end_block,
+        page = page,
+        offset = offset,
+        sort = "asc",
+        apikey = api_key
+      ) |>
+      req_perform() |>
+      resp_body_json(simplifyVector = TRUE)
+
+    if (is.character(response$result)) {
+      break
+    }
+
+    page_data <- response$result |>
+      as_tibble()
+
+    transactions[[page]] <- page_data
+
+    if (nrow(page_data) < offset) {
+      break
+    }
+
+    page <- page + 1
+  }
+
+  bind_rows(transactions) |>
+    transmute(
+      block = as.numeric(blockNumber),
+
+      time = as.POSIXct(
+        as.numeric(timeStamp),
+        origin = "1970-01-01",
+        tz = "UTC"
+      ),
+
+      hash,
+      from,
+      to,
+
+      tokenSymbol,
+
+      value_usd = as.numeric(value) / 10^as.numeric(tokenDecimal)
+    )
+}
+
+```
+
+```{r, eval=FALSE}
+
+tokens <- bind_rows(
+  get_token_transfers(usdc, start_block = 26337197, end_block = 26337296),
+  get_token_transfers(usdt, start_block = 26337197, end_block = 26337296),
+  get_token_transfers(dai, start_block = 26337197, end_block = 26337296)
+)
+
+write_csv(tokens, "data/tokens.csv")
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+tokens <- read_csv("data/tokens.csv")
+
+count(tokens, tokenSymbol, sort = TRUE)
+
+```
+```{r, eval=TRUE, echo=TRUE}
+
+tokens |>
+  group_by(tokenSymbol) |>
+  summarise(
+    n = n(),
+    min_usd = min(value_usd),
+    median_usd = median(value_usd),
+    mean_usd = mean(value_usd),
+    max_usd = max(value_usd)
+)
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+tokens |>
+  filter(value_usd > 0) |>
+  ggplot(aes(value_usd)) +
+  geom_histogram(bins = 50) +
+  scale_x_log10() +
+  facet_wrap(~ tokenSymbol, scales = "free_y") +
+  labs(
+    title = "Distribuzione dei trasferimenti",
+    x = "Dollari trasferiti (scala logaritmica)",
+    y = "Numero di trasferimenti"
+  ) +
+  theme_minimal()
+
+```
+Dall'analisi svolta si può evincere che le tre stablecoin hanno trasferimenti di taglia simile, tuttavia con differenze nel centro e nelle code. La mediana è di 92 dollari per USDT, 145 per USDC e 521 per DAI, quindi, il trasferimento tipico è piccolo, sopratutto per USDT e USDC, mentre con DAI risulta leggermente più alto (da segnalare, però, la presenza di soli 257 trasferimenti, rispetto agli 8202 di USDC e ai 7176 di USDT). 
+Le medie, invece, sono molto più alte delle mediane (14.282 dollari per USDT, 29.451 per DAI e 208 per USDC), a indicare distribuzioni fortemente asimmetriche, trainate da pochi trasferimenti molto grandi (il transferimento massimo è di 6,7 milioni per USDT, 525 mila per DAI e oltre 100 milioni per USDC). 
+L’istogramma, in scala logaritmica, mostra per tutte e tre una distribuzione con il massimo nell’ordine delle centinaia di dollari e una coda verso gli importi elevati.
+
+
+# 2. How much transfer volume does each stablecoin generate?
+
+```{r, eval=TRUE, echo=TRUE}
+
+tokens |>
+  group_by(tokenSymbol) |>
+  summarise(
+    n = n(),
+    total_usd = sum(value_usd),
+    mean_usd = mean(value_usd)
+  )
+
+tokens |>
+  group_by(tokenSymbol) |>
+  summarise(total_usd = sum(value_usd)) |>
+  mutate(share = scales::percent(total_usd / sum(total_usd)))
+
+tokens |>
+  group_by(tokenSymbol) |>
+  summarise(total_usd = sum(value_usd)) |>
+  ggplot(aes(x = tokenSymbol, y = total_usd / 1e6)) +
+  geom_col() +
+  labs(
+    title = "Volume dei trasferimenti per stablecoin",
+    x = NULL,
+    y = "Milioni di dollari"
+  ) +
+  theme_minimal()
+
+```
+Nei 100 blocchi analizzati (26337197–26337296, i più recenti nel momento dell'analisi, in data: 3 novembre 2026) le tre stablecoin generano un volume complessivo di circa 1,8 miliardi di dollari, ma distribuito in modo molto diseguale. USDC ne genera circa 1,7 miliardi (circa 94% del totale), USDT circa 102 milioni (5,6%) e DAI circa 7,6 milioni (0,4%). Il numero di trasferimenti di USDC e USDT è molto simile (8.202 e 7.176), ma il volume di USDC è circa 17 volte maggiore, deduco che la differenza dipenda, quindi, dall’importo medio dei trasferimenti, molto più alto per USDC (208 mila dollari contro 14 mila). DAI, invece, ha solo 257 trasferimenti e un volume trascurabile. 
+
+
