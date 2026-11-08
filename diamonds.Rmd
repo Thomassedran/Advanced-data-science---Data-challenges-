@@ -1,0 +1,213 @@
+---
+title: "Diamonds quality"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+```
+In this data challenge we explore the qualities of diamonds and their association with price using the `ggplot2::diamonds` dataset:
+
+1. First of all, observe that low quality diamonds (with respect to cut, color and clarity) are more expensive.
+2. Using models, find an explanation and solve the apparent paradox.
+
+Recall that:
+
+* best cut is Ideal, worst is Fair
+* best color is D, worst is J
+* best clarity is IF, worst is I1
+
+```{r, eval=TRUE, echo=TRUE}
+
+library(dplyr)
+library(ggplot2)
+
+diamonds
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+ggplot(diamonds, aes(cut, price)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(cut, price)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+ggplot(diamonds, aes(color, price)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(color, price)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+ggplot(diamonds, aes(clarity, price)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(clarity, price)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+diamonds |>
+  group_by(cut) |>
+  summarise(n = n(), mean_price = mean(price), median_price = median(price))
+
+diamonds |>
+  group_by(color) |>
+  summarise(n = n(), mean_price = mean(price), median_price = median(price))
+
+diamonds |>
+  group_by(clarity) |>
+  summarise(n = n(), mean_price = mean(price), median_price = median(price))
+
+```
+# I risultati ottenuti confermano l'affermazione iniziale, ovvero che i diamanti di qualità inferiore tendono a costare di più.
+# Per il colore, il prezzo mediano cresce passando dal migliore (D, circa 1.800 dollari) al peggiore (J, circa 4.200). # Per la purezza, le classi migliori (VVS1 e IF) hanno i prezzi mediani più bassi (circa 1.100 dollari), mentre quelle peggiori (SI2 e I1) hanno i più alti (circa 3.300–4.000). 
+# Per il taglio la tendenza è meno regolare, ma il taglio migliore, Ideal, ha il prezzo mediano più basso (circa 1.800), mentre Fair, il peggiore, sta attorno a 3.300. 
+# Inoltre, si può osservare che in tutte e tre le categorie i prezzi mostrano una distribuzione molto asimmetrica, con molti valori elevati sopra i box.
+
+```{r, eval=TRUE, eval=TRUE}
+
+ggplot(diamonds, aes(carat, price)) +
+  geom_point(alpha = 1/10)
+
+ggplot(diamonds, aes(carat, price)) +
+  geom_point(alpha = 1/10) +
+  scale_x_log10() +
+  scale_y_log10()
+
+```
+```{r, eval=TRUE, eval=TRUE}
+
+ggplot(diamonds, aes(depth, price)) +
+  geom_point(alpha = 1/10)
+
+```
+
+```{r, eval=TRUE, eval=TRUE}
+
+ggplot(diamonds, aes(table, price)) +
+  geom_point(alpha = 1/10)
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+diamonds |>
+  summarise(
+    cor_carat = cor(price, carat),
+    cor_depth = cor(price, depth),
+    cor_table = cor(price, table)
+  )
+
+```
+# Per capire cosa potesse alterare in questo modo i prezzi ho cercato sul dataset le variabili restanti, quindi, "carat", "depth" e "table" (non ho considerato x,y,z in quanto indicano la dimensione fisica del diamante e quindi, strettamente legate alla variabile del carato, che ne indica il peso). 
+# Per ciascuna ho tracciato un grafico, per verificare l'andamento del prezzo rispetto alla variabile e ho calcolato il coefficiente di correlazione. 
+# Per il peso ho usato anche la scala logaritmica sui due assi, che rende la relazione quasi lineare. 
+# I risultati sono esplicativi: il prezzo è fortemente correlato al peso (correlazione 0,92), mentre lo è pochissimo a depth (−0,01) e debolmente a table (0,13). 
+# Il pes, quindi, è l’unica variabile che altera in modo considerevole il prezzo ed è la candidata naturale a spiegare il paradosso: se i diamanti di qualità inferiore fossero mediamente più pesanti, risulterebbero più costosi pur valendo meno a parità di peso.
+
+```{r, eval=TRUE, echo=TRUE}
+
+ggplot(diamonds, aes(cut, carat)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(cut, carat)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+ggplot(diamonds, aes(color, carat)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(color, carat)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+
+ggplot(diamonds, aes(clarity, carat)) +
+  geom_boxplot()
+
+ggplot(diamonds, aes(clarity, carat)) +
+  geom_boxplot() +
+  scale_y_log10()
+
+```
+# Si può osservare come il peso mediano dei diamanti cresce al peggiorare della qualità: i tagli peggiori (Fair), i colori peggiori (I e J) e le purezze peggiori (I1 e SI2) sono mediamente più pesanti dei migliori. Poiché il prezzo dipende fortemente dal peso, i diamanti di qualità inferiore risultano più costosi proprio perché più grandi.
+
+```{r, eval=TRUE, echo=TRUE}
+ 
+library(modelr)
+
+mod <- lm(price ~ carat, data = diamonds)
+
+diamonds_mod <- diamonds |>
+  add_predictions(mod)
+
+diamonds_mod |>
+  ggplot(aes(carat, price)) +
+  geom_point(alpha = 1/10) +
+  geom_line(aes(y = pred), colour = "red")
+
+```
+```{r, eval=TRUE, echo=TRUE}
+ 
+diamonds_mod <- diamonds_mod |>
+  add_residuals(mod)
+
+diamonds_mod
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+ 
+diamonds_mod |>
+  ggplot(aes(cut, resid)) +
+  geom_ref_line(h = 0) +
+  geom_boxplot()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+ 
+diamonds_mod |>
+  ggplot(aes(color, resid)) +
+  geom_ref_line(h = 0) +
+  geom_boxplot()
+
+```
+
+```{r, eval=TRUE, echo=TRUE}
+ 
+diamonds_mod |>
+  ggplot(aes(clarity, resid)) +
+  geom_ref_line(h = 0) +
+  geom_boxplot()
+
+```
+# Il paradosso si spiega con il peso dei diamanti (carat). Il prezzo, infatti, dipende in modo significativo dal peso e i diamanti di qualità inferiore sono in media più pesanti: il peso mediano cresce passando dal taglio migliore al peggiore, dal colore D al J e dalla purezza IF a I1. I diamanti peggiori, quindi, costano di più non perché siano più pregiati, ma perché sono più grandi. Per verificarlo ho adattato un modello lineare del prezzo in funzione del peso e ho calcolato i residui, cioè la differenza tra il prezzo reale e quello atteso per un diamante dello stesso peso, in modo da confrontare i prezzi a parità di peso. 
+# Nell'ultima analisi si possono osservare i seguenti aspetti: per la purezza i residui salgono in modo regolare; per il colore i colori migliori (D, E, F, G) stanno attorno a zero o poco sopra, mentre H, I e J sono sotto zero, con J il più basso; il taglio Fair ha un residuo nettamente negativo, mentre Very Good, Premium e Ideal stanno attorno a zero, con Ideal leggermente sopra. 
+# A parità di peso, quindi, una qualità superiore corrisponde a un prezzo più alto, come ci si aspetta, anche se l’effetto del taglio è molto meno marcato di quello di purezza e colore.

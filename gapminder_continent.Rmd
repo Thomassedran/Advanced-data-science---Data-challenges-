@@ -1,0 +1,90 @@
+---
+title: "How life expectancy change over time for each continent?"
+output:
+  html_document:
+    theme: spacelab
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+# cache results
+knitr::opts_chunk$set(cache=TRUE, message=FALSE)
+```
+
+Life expectancy for a country is the mean length of life over people of a country. Using variables life expectancy and population of a country:
+
+# 1.  derive a formula to compute life expectancy of a continent (a group of countries)
+
+Per un continente "c", in un dato anno, la formula:
+
+$$\text{lifeExp}_c = \frac{\sum_{i \in c} \text{lifeExp}_i \cdot \text{pop}_i}{\sum_{i \in c} \text{pop}_i}$$
+
+ci permette di determinare l'aspettativa di vita di un continente, inteso come gruppo di paesi, dove $\text{lifeExp}_i$ e $\text{pop}_i$, sono l'aspettativa di vita e la popolazione del paese $i$.
+
+L’aspettativa di vita di un paese è la durata media della vita dei suoi abitanti, quindi, il prodotto $\text{lifeExp}_1$ e $\text{pop}_1$ restituisce la somma delle durate di vita delle sue persone. 
+Sommando questo prodotto sui paesi del continente si ottiene la somma delle durate di vita di tutti gli abitanti del continente e poi dividendola per la popolazione totale del continente si ottiene la durata media della vita. 
+Ciò che si ottiene, quindi, è una media delle aspettative di vita dei paesi pesata per la popolazione. 
+
+
+# 2.  plot how life expectancy changed over time for each continent
+
+```{r, eval=TRUE, echo=TRUE}
+
+library(tidyverse)
+library(gapminder)
+
+by_continent <- gapminder |>
+  group_by(continent, year) |>
+  summarise(lifeExp = sum(lifeExp * pop) / sum(pop))
+
+by_continent
+
+by_continent |>
+  ggplot(aes(year, lifeExp, color = continent)) +
+  geom_line() +
+  ggtitle("Aspettativa di vita per continente") +
+  theme_classic()
+
+gapminder |>
+  ggplot(aes(year, lifeExp)) +
+  geom_line(aes(group = country), alpha = 1/3) +
+  geom_line(data = by_continent, color = "red", linewidth = 1) +
+  facet_wrap(~continent) +
+  ggtitle("Aspettativa di vita di ogni continente, rispetto alla media pesata") +
+  theme_classic()
+
+```
+Il primo grafico mostra che l’aspettativa di vita è cresciuta in tutti i continenti tra il 1952 e il 2007, ma con livelli e andamenti abbastanza diversi. Oceania ed Europa partono da valori più alti, circa 69 e 65 anni, e arrivano a circa 81 e 78 anni. Le Americhe seguono leggermente sotto, passando da circa 60 a 75 anni. Asia e Africa, invece, partono da valori molto più bassi, circa 43 e 39 anni e, nonostante una crescita sostanziale, restano di gran lunga sotto agli altri continenti. 
+L’Asia ha un aumento molto rapido, tuttavia presenta una particolare battuta d’arresto attorno agli anni Sessanta, ma viene seguita poi da una rapida risalita. L’Africa cresce più lentamente e, tra la fine degli anni Ottanta e gli anni Duemila, la crescita si ferma, per poi risalire nel decennio successivo. Si può vedere, quindi, come il divario tra i continenti si sia ridotto per l’Asia, mentre l’Africa resta nettamente indietro.
+
+Poiché la curva di ciascun continente è una media pesata per la popolazione, ho aggiunto un secondo grafico che sovrappone la media (in rosso) alle singole traiettorie dei paesi, con un pannello per continente. Il mio intento è stato quello di capire quanto la media rappresenti davvero il continente e da cosa dipendano gli andamenti di Asia e Africa, che si discostano di più dagli altri. 
+Il secondo grafico mostra che Europa e Oceania sono piuttosto omogenee, con paesi raccolti attorno alla media, mentre le Americhe hanno una dispersione più contenuta. In Asia e in Africa, invece, i paesi sono molto più dispersi, con nazioni che restano molto sotto la media e alcune traiettorie che mostrano cali improvvisi. Poiché la media è pesata per la popolazione, l’andamento di ciascun continente è determinato soprattutto dai paesi più popolosi ed è lì che si spiegano le sue irregolarità. 
+In Asia la flessione attorno al 1962 è legata alla Cina, il paese più popoloso del continente, la cui aspettativa di vita cala tra il 1957 e il 1962 (periodo della grande carestia), trascinando verso il basso la media dell’intero continente. 
+In Africa il rallentamento degli anni Novanta è legato all’epidemia di HIV/AIDS, che ha colpito molti paesi e ha fermato la crescita della media. Il genocidio in Ruanda, invece, è ben visibile come crollo improvviso nella traiettoria di quel paese, ma incide poco sulla curva dell’Africa, perché la sua popolazione è abbastanza piccola. In questi due continenti la media nasconde quindi realtà molto diverse tra paesi e si può vedere come gli episodi che colpiscono paesi molto popolosi spostano la curva del continente in modo abbastanza significativo, mentre quelli che colpiscono paesi piccoli la influenzano poco.
+
+```{r, eval=TRUE, echo=TRUE}
+gapminder |>
+  filter(country == "China")
+```
+
+
+# 3.  do the same for the whole planet
+
+```{r, eval=TRUE, echo=TRUE}
+
+by_world <- gapminder |>
+  group_by(year) |>
+  summarise(lifeExp = sum(lifeExp * pop) / sum(pop))
+
+by_world
+
+by_world |>
+  ggplot(aes(year, lifeExp)) +
+  geom_line() +
+  ggtitle("Aspettativa di vita nel pianeta (media pesata per popolazione)") +
+  theme_classic()
+
+```
+Applicando la stessa formula a tutti gli stati del mondo, si ottiene l’aspettativa di vita mondiale, pesata per la popolazione. Il grafico mostra una crescita costante, da circa 50 anni nel 1952 a circa 70 anni nel 2007, tuttavia l’andamento non è regolare, infatti, tra il 1957 e il 1962 la crescita si ferma quasi completamente, per poi riprendere negli anni seguenti. Questa battuta d’arresto riflette il calo della Cina, analizzato in precedenza, che per la sua enorme popolazione incide molto sulla media mondiale. 
+Confrontando questa curva con quella dell’Asia, inoltre, si nota una forte somiglianza tra le due tendenze: entrambe crescono con lo stesso andamento, con la battuta d’arresto attorno ai primi anni Sessanta e la ripresa successiva. 
+L’aspettativa di vita mondiale dipende, quindi, in larga parte da quella asiatica, perché l’Asia ospita la maggior parte della popolazione mondiale e, essendo la media pesata per la popolazione, pesa di più di tutti gli altri continenti. Ciò indica che il miglioramento complessivo dell’aspettativa di vita nel mondo è stato guidato in gran parte dalla crescita dell’Asia, mentre l’Africa, che nel suo ultimo tratto si ferma, ha inciso meno sulla media mondiale.
